@@ -99,7 +99,9 @@ def find_links_from_bs(bs: BeautifulSoup) -> list[str]:
         {
             BASE_WIKI_LINK + link.get("href")
             for link in links
-            if link.get("href") and "wiki" in link.get("href")
+            if link.get("href")
+            and "wiki" in link.get("href")
+            and "file" not in link.get("href")
         }
     )
 
@@ -122,30 +124,13 @@ async def fetch_text_and_response_url(
         return None, None
 
 
-async def fetch_wiki_pages(count: int) -> list[str]:
+async def fetch_wiki_pages(pages_to_visit: list[str]) -> list[str]:
     async with aiohttp.ClientSession() as session:
         results = await asyncio.gather(
-            *[
-                fetch_text_and_response_url(session, RANDOM_WIKI_LINK)
-                for _ in range(count)
-            ],
+            *[fetch_text_and_response_url(session, page) for page in pages_to_visit],
             return_exceptions=False,
         )
         return results
-
-
-def fetch_from_source(
-    source: str, all_urls: list[str], all_titles: list[str], all_texts: list[str]
-) -> list[str]:
-    response = requests.get(source)
-    if response.status_code != 200:
-        raise FetchException(f"Failed to fetch from {source}")
-    parsed = BeautifulSoup(response.text, "html.parser")
-    title, text = parse_content_from_bs(parsed)
-    all_urls.append(source)
-    all_titles.append(title)
-    all_texts.append(text)
-    return find_links_from_bs(parsed)
 
 
 def preprocess_raw_text(text: str | None) -> list[str]:
@@ -162,18 +147,18 @@ def preprocess_raw_text(text: str | None) -> list[str]:
     ]
 
 
-def fetch_random_pages(
-    total: int, batch: int, verbose: bool = True
+def fetch_pages_from_list(
+    batch: int, pages_to_visit: list[str], verbose: bool = True
 ) -> tuple[list[str], list[str], list[str]]:
     all_urls = []
     all_titles = []
     all_texts = []
     batch_counter = 0
-    total_batches = math.ceil(total / batch)
-    while total > 0:
-        doc_count = total if total < batch else batch
-        print(f"Querying in batch {doc_count} documents...")
-        documents, urls = zip(*asyncio.run(fetch_wiki_pages(doc_count)))
+    total_batches = math.ceil(len(pages_to_visit) / batch)
+    while pages_to_visit:
+        batch_pages = pages_to_visit[:batch]
+        print(f"Querying in batch {len(batch_pages)} documents...")
+        documents, urls = zip(*asyncio.run(fetch_wiki_pages(batch_pages)))
         titles, texts = zip(
             *[
                 parse_content_from_bs(BeautifulSoup(document, "html.parser"))
@@ -181,10 +166,10 @@ def fetch_random_pages(
                 if document
             ]
         )
+        pages_to_visit = pages_to_visit[batch:]
         all_urls.extend(urls)
         all_titles.extend(titles)
         all_texts.extend(texts)
-        total -= doc_count
         batch_counter += 1
         sleep_time = random.randint(1, 5)
         if verbose:
@@ -194,42 +179,42 @@ def fetch_random_pages(
     return (all_urls, all_titles, all_texts)
 
 
-def fetch_sync_bfs(
+def get_pages_related_to_source(
     source: str, total: int, verbose: bool = True
-) -> tuple[list[str], list[str], list[str]]:
-    all_urls = []
-    all_texts = []
-    all_titles = []
+) -> list[str]:
     all_links = [source]
-    while len(all_texts) < total:
+    parsed_links = []  #
+    while len(all_links) < total:
         source = all_links.pop(0)
+        response = requests.get(source)
+        if response.status_code != 200:
+            print(f"Failed to fetch {source}!")
+            continue
         if verbose:
-            print(f"[{len(all_texts)}/{total}] Fetching {source}")
-        try:
-            all_links.extend(fetch_from_source(source, all_urls, all_titles, all_texts))
-        except FetchException as e:
-            print(e)
-            continue
-        except requests.exceptions.ConnectionError as e:
-            print(e)
-            continue
-    return (all_urls, all_titles, all_texts)
+            print(f"[{len(all_links)}/{total}] Fetching {source}")
+        all_links.extend(
+            find_links_from_bs(BeautifulSoup(response.text, "html.parser"))
+        )
+        parsed_links.append(source)
+    return (parsed_links + all_links)[:total]
 
 
 def main() -> None:
     ts = time.perf_counter()
     args = parse_args()
 
+    if platform.system() == "Windows":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    pages = [RANDOM_WIKI_LINK] * args.number
     if args.seeding_page:
-        all_urls, all_titles, all_texts = fetch_sync_bfs(
-            args.seeding_page, args.number, True
-        )
-    else:
-        if platform.system() == "Windows":
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        all_urls, all_titles, all_texts = fetch_random_pages(args.number, args.batch)
+        pages = get_pages_related_to_source(args.seeding_page, args.number)
+
+    all_urls, all_titles, all_texts = fetch_pages_from_list(args.batch, pages)
 
     print(f"Successfully parsed {len(all_texts)} articles!")
+    if len(all_texts) < args.number:
+        print(f"A total of {args.number - len(all_texts)} articles failed to parse!")
 
     if not args.omit_preprocess_text:
         print("Pre-processing text...")
