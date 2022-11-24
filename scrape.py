@@ -101,7 +101,8 @@ def find_links_from_bs(bs: BeautifulSoup) -> list[str]:
             for link in links
             if link.get("href")
             and "wiki" in link.get("href")
-            and "file" not in link.get("href")
+            and ":" not in link.get("href")
+            and "#" not in link.get("href")
         }
     )
 
@@ -192,9 +193,13 @@ def get_pages_related_to_source(
             continue
         if verbose:
             print(f"[{len(all_links)}/{total}] Fetching {source}")
-        all_links.extend(
-            find_links_from_bs(BeautifulSoup(response.text, "html.parser"))
-        )
+        new_links = find_links_from_bs(BeautifulSoup(response.text, "html.parser"))
+        new_links = [
+            link
+            for link in new_links
+            if link not in parsed_links + all_links + [source]
+        ]
+        all_links.extend(new_links)
         parsed_links.append(source)
     return (parsed_links + all_links)[:total]
 
