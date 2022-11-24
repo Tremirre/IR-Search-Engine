@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import time
 import random
+import requests
 import math
 
 import aiohttp
@@ -14,7 +15,8 @@ from bs4 import BeautifulSoup
 from dataclasses import dataclass
 
 DIGIT_SET = set(string.digits)
-RANDOM_WIKI_LINK = "https://en.wikipedia.org/wiki/Special:Random"
+BASE_WIKI_LINK = "https://en.wikipedia.org"
+RANDOM_WIKI_LINK = f"{BASE_WIKI_LINK}/wiki/Special:Random"
 ENG_STOPWORDS = nltk.corpus.stopwords.words("english")
 
 
@@ -25,6 +27,7 @@ class ProgramArgs:
     to: str
     batch: int
     omit_preprocess_text: bool
+    seeding_page: str | None
 
 
 def parse_args() -> ProgramArgs:
@@ -62,28 +65,43 @@ def parse_args() -> ProgramArgs:
         help="Batch size for async requests (default: 100)",
         default=100,
     )
+    parser.add_argument(
+        "-s",
+        "--seeding-page",
+        type=str,
+        help="Seed the random page generator with a given page (default: None)",
+        default=None,
+    )
 
     return ProgramArgs(**vars(parser.parse_args()))
 
 
-def parse_wiki_article_from_document(
-    document: str | None,
+def parse_content_from_bs(
+    bs: BeautifulSoup,
 ) -> tuple[str, str] | tuple[None, None]:
-    if not document:
-        return None, None
-    parsed = BeautifulSoup(document, "html.parser")
-    article = parsed.find(id="content")
+    article = bs.find(id="content")
     if not article:
         return None, None
-    title = parsed.find(id="firstHeading")
+    title = bs.find(id="firstHeading")
     if not title:
         return None, None
     title = title.get_text()
-    text = parsed.find(id="mw-content-text")
+    text = bs.find(id="mw-content-text")
     if not text:
         return None, None
     text = text.get_text()
     return (title, text)
+
+
+def find_links_from_bs(bs: BeautifulSoup) -> list[str]:
+    links = bs.find(id="mw-content-text").find_all("a")
+    return list(
+        {
+            BASE_WIKI_LINK + link.get("href")
+            for link in links
+            if link.get("href") and "wiki" in link.get("href")
+        }
+    )
 
 
 class FetchException(Exception):
@@ -116,6 +134,20 @@ async def fetch_wiki_pages(count: int) -> list[str]:
         return results
 
 
+def fetch_from_source(
+    source: str, all_urls: list[str], all_titles: list[str], all_texts: list[str]
+) -> list[str]:
+    response = requests.get(source)
+    if response.status_code != 200:
+        raise FetchException(f"Failed to fetch from {source}")
+    parsed = BeautifulSoup(response.text, "html.parser")
+    title, text = parse_content_from_bs(parsed)
+    all_urls.append(source)
+    all_titles.append(title)
+    all_texts.append(text)
+    return find_links_from_bs(parsed)
+
+
 def preprocess_raw_text(text: str | None) -> list[str]:
     if not text:
         return []
@@ -130,36 +162,75 @@ def preprocess_raw_text(text: str | None) -> list[str]:
     ]
 
 
-def main() -> None:
-    ts = time.perf_counter()
-    args = parse_args()
-
-    if platform.system() == "Windows":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+def fetch_random_pages(
+    total: int, batch: int, verbose: bool = True
+) -> tuple[list[str], list[str], list[str]]:
     all_urls = []
     all_titles = []
     all_texts = []
-    total = args.number
     batch_counter = 0
-    total_batches = math.ceil(total / args.batch)
+    total_batches = math.ceil(total / batch)
     while total > 0:
-        doc_count = total if total < args.batch else args.batch
+        doc_count = total if total < batch else batch
         print(f"Querying in batch {doc_count} documents...")
         documents, urls = zip(*asyncio.run(fetch_wiki_pages(doc_count)))
         titles, texts = zip(
-            *[parse_wiki_article_from_document(document) for document in documents]
+            *[
+                parse_content_from_bs(BeautifulSoup(document, "html.parser"))
+                for document in documents
+                if document
+            ]
         )
         all_urls.extend(urls)
         all_titles.extend(titles)
         all_texts.extend(texts)
         total -= doc_count
         batch_counter += 1
-        print(f"Finished batch {batch_counter}/{total_batches}")
         sleep_time = random.randint(1, 5)
-        print(f"Sleeping for {sleep_time} seconds...")
+        if verbose:
+            print(f"Finished batch {batch_counter}/{total_batches}")
+            print(f"Sleeping for {sleep_time} seconds...")
         time.sleep(sleep_time)
+    return (all_urls, all_titles, all_texts)
+
+
+def fetch_sync_bfs(
+    source: str, total: int, verbose: bool = True
+) -> tuple[list[str], list[str], list[str]]:
+    all_urls = []
+    all_texts = []
+    all_titles = []
+    all_links = [source]
+    while len(all_texts) < total:
+        source = all_links.pop(0)
+        if verbose:
+            print(f"[{len(all_texts)}/{total}] Fetching {source}")
+        try:
+            all_links.extend(fetch_from_source(source, all_urls, all_titles, all_texts))
+        except FetchException as e:
+            print(e)
+            continue
+        except requests.exceptions.ConnectionError as e:
+            print(e)
+            continue
+    return (all_urls, all_titles, all_texts)
+
+
+def main() -> None:
+    ts = time.perf_counter()
+    args = parse_args()
+
+    if args.seeding_page:
+        all_urls, all_titles, all_texts = fetch_sync_bfs(
+            args.seeding_page, args.number, True
+        )
+    else:
+        if platform.system() == "Windows":
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        all_urls, all_titles, all_texts = fetch_random_pages(args.number, args.batch)
 
     print(f"Successfully parsed {len(all_texts)} articles!")
+
     if not args.omit_preprocess_text:
         print("Pre-processing text...")
         all_texts = [";".join(preprocess_raw_text(text)) for text in all_texts]
@@ -168,6 +239,7 @@ def main() -> None:
     df = pd.DataFrame(
         zip(all_titles, all_urls, all_texts), columns=["title", "url", "text"]
     )
+
     dropped_df = df.dropna()
     if dropped_df.shape != df.shape:
         print(
