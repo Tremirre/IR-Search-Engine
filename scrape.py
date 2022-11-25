@@ -103,6 +103,7 @@ def find_links_from_bs(bs: BeautifulSoup) -> list[str]:
             and "wiki" in link.get("href")
             and ":" not in link.get("href")
             and "#" not in link.get("href")
+            and "upload.wikimedia.org" not in link.get("href")
         }
     )
 
@@ -119,9 +120,13 @@ async def fetch_text_and_response_url(
     try:
         async with session.get(url) as response:
             if response.status != 200:
+                print(
+                    f"[WARNING] Failed to fetch {response.url} (received code {response.status})"
+                )
                 return None, None
             return await response.text(), str(response.url)
     except aiohttp.client_exceptions.ClientConnectorError:
+        print(f"[WARNING] Failed to connect to the {url}")
         return None, None
 
 
@@ -217,9 +222,7 @@ def main() -> None:
 
     all_urls, all_titles, all_texts = fetch_pages_from_list(args.batch, pages)
 
-    print(f"Successfully parsed {len(all_texts)} articles!")
-    if len(all_texts) < args.number:
-        print(f"A total of {args.number - len(all_texts)} articles failed to parse!")
+    print(f"Successfully parsed {len(all_texts)}/{args.number} articles!")
 
     if not args.omit_preprocess_text:
         print("Pre-processing text...")
@@ -233,7 +236,7 @@ def main() -> None:
     dropped_df = df.dropna()
     if dropped_df.shape != df.shape:
         print(
-            f"Dropped {df.shape[0] - dropped_df.shape[0]} rows with missing values ({dropped_df.shape[0]} remain)"
+            f"Dropped {df.shape[0] - dropped_df.shape[0]} rows with missing values ({dropped_df.shape[0]} remain)."
         )
     print("Exporting to file...")
     if args.to == "parquet":
