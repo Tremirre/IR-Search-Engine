@@ -22,7 +22,7 @@ def unpack_text(text: str) -> str:
 
 
 def wiki_page_from_url_to_content_text(url: str) -> str:
-    bs = BeautifulSoup(requests.get(url).text)
+    bs = BeautifulSoup(requests.get(url).text, "html.parser")
     return parse_content_from_bs(bs)[1]
 
 
@@ -30,14 +30,19 @@ class SimpleSearcheEngine:
     def __init__(self) -> None:
         self.vectorizer = TfidfVectorizer(use_idf=True, smooth_idf=False)
         self.index = pd.DataFrame()
+        self.acceptance_mask = pd.Series(dtype=bool)
 
-    def compile_index(self, documents: list[str], urls: list[str]) -> None:
+    def compile_index(
+        self, documents: list[str], urls: list[str], acceptance_threshold: float = 0
+    ) -> None:
         transformed_docs = self.vectorizer.fit_transform(documents).toarray()
         self.index = pd.DataFrame(
             transformed_docs,
             index=urls,
             columns=self.vectorizer.get_feature_names_out(),
         )
+        self.acceptance_mask = self.index.sum(axis=0) >= acceptance_threshold
+        self.index = self.index.loc[:, self.acceptance_mask]
 
     def make_scores_dataframe(
         self, multipliers: np.ndarray, top_n: int
@@ -50,7 +55,7 @@ class SimpleSearcheEngine:
         return top_scores_df.loc[:, (top_scores_df != 0).any(axis=0)]
 
     def vectorize_text(self, texts: list[str]) -> np.ndarray:
-        return self.vectorizer.transform(texts).toarray()
+        return self.vectorizer.transform(texts).toarray()[:, self.acceptance_mask]
 
     def get_similarities(self, vectorized_query: np.ndarray) -> pd.Series:
         similarities = self.index.dot(vectorized_query.T).squeeze()
