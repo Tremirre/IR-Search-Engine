@@ -14,7 +14,7 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
 
-DIGIT_SET = set(string.digits)
+LETTER_SET = set(string.ascii_lowercase)
 BASE_WIKI_LINK = "https://en.wikipedia.org"
 RANDOM_WIKI_LINK = f"{BASE_WIKI_LINK}/wiki/Special:Random"
 ENG_STOPWORDS = nltk.corpus.stopwords.words("english")
@@ -146,9 +146,8 @@ def preprocess_raw_text(text: str | None) -> list[str]:
     return [
         word_lemmatizer.lemmatize(token).lower()
         for token in nltk.word_tokenize(text)
-        if not (DIGIT_SET & set(token))
+        if not (set(token.lower()) - LETTER_SET)
         and len(token) > 1
-        and token.isascii()
         and token.lower() not in ENG_STOPWORDS
     ]
 
