@@ -164,10 +164,10 @@ def fetch_pages_from_list(
         batch_pages = pages_to_visit[:batch]
         print(f"Querying in batch {len(batch_pages)} documents...")
         documents, urls = zip(*asyncio.run(fetch_wiki_pages(batch_pages)))
-        titles, texts = zip(
+        titles, texts, urls = zip(
             *[
-                parse_content_from_bs(BeautifulSoup(document, "html.parser"))
-                for document in documents
+                (*parse_content_from_bs(BeautifulSoup(document, "html.parser")), url)
+                for document, url in zip(documents, urls)
                 if document
             ]
         )
