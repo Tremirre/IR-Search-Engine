@@ -86,10 +86,12 @@ def parse_content_from_bs(
     if not title:
         return None, None
     title = title.get_text()
-    text = bs.find(id="mw-content-text")
-    if not text:
+    text_container = bs.find("div", {"class": "mw-parser-output"})
+    if not text_container:
         return None, None
-    text = text.get_text()
+    text = ""
+    for paragraph in text_container.findChildren("p", recursive=False):
+        text += paragraph.get_text()
     return (title, text)
 
 
@@ -196,7 +198,7 @@ def get_pages_related_to_source(
             print(f"Failed to fetch {source}!")
             continue
         if verbose:
-            print(f"[{len(all_links)}/{total}] Fetching {source}")
+            print(f"[{len(all_links)}/{total}] Fetching links from {source}")
         new_links = find_links_from_bs(BeautifulSoup(response.text, "html.parser"))
         new_links = [
             link
