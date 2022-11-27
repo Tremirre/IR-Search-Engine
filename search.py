@@ -28,7 +28,7 @@ def wiki_page_from_url_to_content_text(url: str) -> str:
 
 class SimpleSearcheEngine:
     def __init__(self) -> None:
-        self.vectorizer = TfidfVectorizer(use_idf=True, smooth_idf=False)
+        self.vectorizer = TfidfVectorizer(use_idf=True, smooth_idf=False, stop_words="english")
         self.index = pd.DataFrame()
         self.acceptance_mask = pd.Series(dtype=bool)
 
