@@ -190,7 +190,7 @@ def get_pages_related_to_source(
     source: str, total: int, verbose: bool = True
 ) -> list[str]:
     all_links = [source]
-    parsed_links = []  #
+    parsed_links = []
     while len(all_links) < total:
         source = all_links.pop(0)
         response = requests.get(source)
