@@ -86,11 +86,11 @@ def parse_content_from_bs(
     if not title:
         return None, None
     title = title.get_text()
-    text_container = bs.find("div", {"class": "mw-parser-output"})
+    text_container = bs.find("div", {"id": "mw-content-text"})
     if not text_container:
         return None, None
     text = ""
-    for paragraph in text_container.findChildren("p", recursive=False):
+    for paragraph in text_container.findChildren("p"):
         text += paragraph.get_text()
     return (title, text)
 
