@@ -91,23 +91,25 @@ def parse_content_from_bs(
         return None, None
     text = ""
     for paragraph in text_container.findChildren("p"):
-        text += paragraph.get_text()
+        if "asbox-body" not in paragraph.get_attribute_list("class"):
+            text += paragraph.get_text()
     return (title, text)
 
 
 def find_links_from_bs(bs: BeautifulSoup) -> list[str]:
     links = bs.find(id="mw-content-text").find_all("a")
-    return list(
-        {
-            BASE_WIKI_LINK + link.get("href")
-            for link in links
-            if link.get("href")
-            and "wiki" in link.get("href")
-            and ":" not in link.get("href")
-            and "#" not in link.get("href")
-            and "upload.wikimedia.org" not in link.get("href")
-        }
-    )
+    filtered_links = []
+    for link in links:
+        href = link.get("href")
+        if not href:
+            continue
+        if ":" in href or "#" in href or "upload.wikimedia.org" in href:
+            continue
+        if link.get("href") and link.get("href").startswith("/wiki/"):
+            full_link = f"{BASE_WIKI_LINK}{link.get('href')}"
+            if full_link not in filtered_links:
+                filtered_links.append(full_link)
+    return filtered_links
 
 
 class FetchException(Exception):
