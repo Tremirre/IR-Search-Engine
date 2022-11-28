@@ -33,7 +33,7 @@ class ProgramArgs:
 def parse_args() -> ProgramArgs:
     parser = argparse.ArgumentParser(
         prog="scrape.py",
-        description="Parses a given number of random wikipedia articles and exports them to a file",
+        description="Parses a given number of random wikipedia articles (or pages from a given seed) and exports them to a file",
         epilog="Beware of too large numbers, as it may take a while to complete",
     )
     parser.add_argument("-n", "--number", type=int, help="number of articles to parse")
