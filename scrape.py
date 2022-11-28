@@ -112,12 +112,6 @@ def find_links_from_bs(bs: BeautifulSoup) -> list[str]:
     return filtered_links
 
 
-class FetchException(Exception):
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__(self.message)
-
-
 async def fetch_text_and_response_url(
     session: aiohttp.ClientSession, url: str
 ) -> tuple[str, str]:
